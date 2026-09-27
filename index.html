@@ -6,28 +6,60 @@
 <title>Tensiometer</title>
 <meta name="theme-color" content="#000">
 <style>
-  :root { --fg: #fff; --dim: #777; --bg: #000; --accent: #4caf50; }
+  :root { --fg: #fff; --dim: #777; --bg: #000; --accent: #4caf50; --over: #ff3b30; --link: #888; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
     font-family: system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
   body { display: flex; flex-direction: column; }
-  /* Digits are ~0.6em wide, so 150vw / chars keeps the number inside the width */
+
+  /* Weak-link selector */
+  #links { display: flex; gap: 8px; padding: 10px 12px; }
+  #links button { flex: 1; padding: 10px 0; border-radius: 8px; border: 2px solid var(--c);
+    background: #000; color: var(--c); font-weight: 600; }
+  #links button.on { background: var(--c); color: #fff; }
+  #links small { display: block; font-weight: 400; opacity: 0.85; }
+
+  /* Reading and scale */
+  #main { flex: 1; display: flex; min-height: 0; }
+  /* Digits are ~0.6em wide; 120vw / chars keeps the number inside the width left of the scale */
   #value { flex: 1; display: flex; align-items: center; justify-content: center;
-    --chars: 3; font-size: min(34vw, 150vw / var(--chars));
+    --chars: 3; font-size: min(30vw, 120vw / var(--chars));
     font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
     letter-spacing: -0.03em; }
-  @media (orientation: landscape) { #value { font-size: min(40vh, 150vw / var(--chars)); } }
+  @media (orientation: landscape) { #value { font-size: min(40vh, 120vw / var(--chars)); } }
   #value.stale { color: var(--dim); }
-  #unit { font-size: 0.3em; font-weight: 400; margin-left: 0.15em; align-self: flex-end;
+  #unit { font-size: 0.28em; font-weight: 400; margin-left: 0.15em; align-self: flex-end;
     margin-bottom: 0.12em; }
+
+  #scale { width: 22vw; max-width: 120px; display: flex; padding: 12px 8px 12px 0; }
+  #track { position: relative; flex: 1; border: 1px solid #444; border-radius: 6px;
+    background: #111; overflow: hidden; }
+  #fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--link);
+    transition: height 80ms linear; }
+  #fill.over { background: var(--over); }
+  #ticks { position: relative; width: 40px; font-size: 13px; color: var(--dim); }
+  #ticks span { position: absolute; left: 8px; transform: translateY(50%); white-space: nowrap; }
+  #ticks span::before { content: ""; position: absolute; left: -9px; top: 50%; width: 6px;
+    border-top: 1px solid #555; }
+  #ticks .full { color: var(--fg); }
+  #ticks .full::before { border-color: var(--fg); }
+  #limit { position: absolute; left: 0; right: 0; bottom: calc(100% / 1.2); border-top: 2px dashed #fff; }
+
   #bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 16px; }
   #status { flex: 1; color: var(--dim); }
-  button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid #444;
+  #connect { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid #444;
     background: #111; color: var(--fg); }
-  button.on { border-color: var(--accent); color: var(--accent); }
+  #connect.on { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
-  <div id="value" class="stale"><span id="num">---</span><span id="unit">N</span></div>
+  <div id="links"></div>
+  <div id="main">
+    <div id="value" class="stale"><span id="num">---</span><span id="unit">kgf</span></div>
+    <div id="scale">
+      <div id="track"><div id="fill"></div><div id="limit"></div></div>
+      <div id="ticks"></div>
+    </div>
+  </div>
   <div id="bar">
     <span id="status">Not connected</span>
     <button id="connect">Connect</button>
@@ -38,21 +70,71 @@
 const SERVICE = 0x185a;
 const FORCE = 0x2c07;
 const STALE_MS = 1500;
+const G = 9.80665;          // N per kgf
+const SCALE_MAX = 120;      // % of the weak link at the top of the bar
+
+// Tost weak links, nominal breaking load in daN (1 daN = 10 N)
+const LINKS = [
+  { name: 'Blue',  daN: 600, color: '#2f6fe4' },
+  { name: 'Red',   daN: 750, color: '#d8342c' },
+  { name: 'Brown', daN: 850, color: '#8b5a2b' },
+];
 
 const num = document.getElementById('num');
 const value = document.getElementById('value');
+const fill = document.getElementById('fill');
+const ticks = document.getElementById('ticks');
+const links = document.getElementById('links');
 const status = document.getElementById('status');
 const button = document.getElementById('connect');
 
 let device = null;
 let lastUpdate = 0;
+let lastNewtons = null;
 let wakeLock = null;
+let link = LINKS.find(l => l.name === localStorage.getItem('link')) ?? LINKS[0];
+
+// Selector
+for (const l of LINKS) {
+  const b = document.createElement('button');
+  b.style.setProperty('--c', l.color);
+  b.innerHTML = `${l.name}<small>${l.daN} daN</small>`;
+  b.dataset.link = l.name;
+  b.addEventListener('click', () => selectLink(l));
+  links.appendChild(b);
+}
+function selectLink(l) {
+  link = l;
+  localStorage.setItem('link', l.name);
+  for (const b of links.children) b.classList.toggle('on', b.dataset.link === l.name);
+  document.documentElement.style.setProperty('--link', l.color);
+  if (lastNewtons !== null) renderScale(lastNewtons);
+}
+
+// Ticks at 0, 50, 100, 120 %
+for (const p of [0, 50, 100, SCALE_MAX]) {
+  const s = document.createElement('span');
+  s.textContent = `${p}%`;
+  s.style.bottom = `${(p / SCALE_MAX) * 100}%`;
+  if (p === 100) s.className = 'full';
+  ticks.appendChild(s);
+}
+
+function percentOfLink(newtons) { return (newtons / (link.daN * 10)) * 100; }
+
+function renderScale(newtons) {
+  const pct = percentOfLink(newtons);
+  fill.style.height = `${Math.min(Math.max(pct, 0), SCALE_MAX) / SCALE_MAX * 100}%`;
+  fill.classList.toggle('over', pct > 100);
+}
 
 function render(view) {
   const newtons = view.getInt32(0, true) / 1000;
-  const text = newtons.toFixed(1);
+  lastNewtons = newtons;
+  const text = (newtons / G).toFixed(1);
   num.textContent = text;
   value.style.setProperty('--chars', text.length);
+  renderScale(newtons);
   lastUpdate = performance.now();
   value.classList.remove('stale');
 }
@@ -131,8 +213,10 @@ value.addEventListener('click', () => {
   else document.documentElement.requestFullscreen?.().catch(() => {});
 });
 
+selectLink(link);
+
 // For tests and the console
-window.tensiometer = { render, SERVICE, FORCE };
+window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE };
 </script>
 </body>
 </html>
