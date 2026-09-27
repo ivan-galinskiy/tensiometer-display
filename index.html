@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tensiometer</title>
+<meta name="theme-color" content="#000">
+<style>
+  :root { --fg: #fff; --dim: #777; --bg: #000; --accent: #4caf50; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+  body { display: flex; flex-direction: column; }
+  #value { flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 34vw; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+    letter-spacing: -0.03em; }
+  @media (orientation: landscape) { #value { font-size: 40vh; } }
+  #value.stale { color: var(--dim); }
+  #unit { font-size: 0.3em; font-weight: 400; margin-left: 0.15em; align-self: flex-end;
+    margin-bottom: 0.12em; }
+  #bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 16px; }
+  #status { flex: 1; color: var(--dim); }
+  button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid #444;
+    background: #111; color: var(--fg); }
+  button.on { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+  <div id="value" class="stale"><span id="num">---</span><span id="unit">N</span></div>
+  <div id="bar">
+    <span id="status">Not connected</span>
+    <button id="connect">Connect</button>
+  </div>
+<script>
+// The gauge's GATT: Industrial Measurement Device service, Force characteristic,
+// sint32 little-endian, exponent -3, newton (i.e. millinewtons). Notifications at ~10 Hz.
+const SERVICE = 0x185a;
+const FORCE = 0x2c07;
+const STALE_MS = 1500;
+
+const num = document.getElementById('num');
+const value = document.getElementById('value');
+const status = document.getElementById('status');
+const button = document.getElementById('connect');
+
+let device = null;
+let lastUpdate = 0;
+let wakeLock = null;
+
+function render(view) {
+  const newtons = view.getInt32(0, true) / 1000;
+  num.textContent = newtons.toFixed(1);
+  lastUpdate = performance.now();
+  value.classList.remove('stale');
+}
+
+function setStatus(text) { status.textContent = text; }
+
+setInterval(() => {
+  if (lastUpdate && performance.now() - lastUpdate > STALE_MS) value.classList.add('stale');
+}, 250);
+
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (_) { /* optional */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && device?.gatt.connected) keepAwake();
+});
+
+async function subscribe() {
+  setStatus('Connecting…');
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(SERVICE);
+  const ch = await service.getCharacteristic(FORCE);
+  ch.addEventListener('characteristicvaluechanged', e => render(e.target.value));
+  await ch.startNotifications();
+  try { render(await ch.readValue()); } catch (_) { /* first notification will do */ }
+  setStatus(`${device.name ?? 'gauge'} · live`);
+  button.textContent = 'Disconnect';
+  button.classList.add('on');
+  keepAwake();
+}
+
+async function onDisconnected() {
+  button.textContent = 'Connect';
+  button.classList.remove('on');
+  value.classList.add('stale');
+  if (!device) return;
+  // Reconnect until the gauge comes back or the user disconnects
+  for (let attempt = 1; device; attempt++) {
+    setStatus(`Reconnecting (${attempt})…`);
+    try { await subscribe(); return; } catch (_) {
+      await new Promise(r => setTimeout(r, Math.min(1000 * attempt, 5000)));
+    }
+  }
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus('Web Bluetooth not available: use Chrome on Android over https');
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE] }],
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    await subscribe();
+  } catch (err) {
+    setStatus(err.name === 'NotFoundError' ? 'No device chosen' : `Error: ${err.message}`);
+    device = null;
+  }
+}
+
+function disconnect() {
+  const d = device;
+  device = null;
+  d?.gatt.disconnect();
+  setStatus('Not connected');
+  button.textContent = 'Connect';
+  button.classList.remove('on');
+  value.classList.add('stale');
+}
+
+button.addEventListener('click', () => device ? disconnect() : connect());
+value.addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+});
+
+// For tests and the console
+window.tensiometer = { render, SERVICE, FORCE };
+</script>
+</body>
+</html>
