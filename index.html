@@ -10,10 +10,12 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
     font-family: system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
   body { display: flex; flex-direction: column; }
+  /* Digits are ~0.6em wide, so 150vw / chars keeps the number inside the width */
   #value { flex: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 34vw; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+    --chars: 3; font-size: min(34vw, 150vw / var(--chars));
+    font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
     letter-spacing: -0.03em; }
-  @media (orientation: landscape) { #value { font-size: 40vh; } }
+  @media (orientation: landscape) { #value { font-size: min(40vh, 150vw / var(--chars)); } }
   #value.stale { color: var(--dim); }
   #unit { font-size: 0.3em; font-weight: 400; margin-left: 0.15em; align-self: flex-end;
     margin-bottom: 0.12em; }
@@ -48,7 +50,9 @@ let wakeLock = null;
 
 function render(view) {
   const newtons = view.getInt32(0, true) / 1000;
-  num.textContent = newtons.toFixed(1);
+  const text = newtons.toFixed(1);
+  num.textContent = text;
+  value.style.setProperty('--chars', text.length);
   lastUpdate = performance.now();
   value.classList.remove('stale');
 }
