@@ -27,8 +27,8 @@
     letter-spacing: -0.03em; }
   @media (orientation: landscape) { #value { font-size: min(40vh, 120vw / var(--chars)); } }
   #value.stale { color: var(--dim); }
-  #unit { font-size: 0.28em; font-weight: 400; margin-left: 0.15em; align-self: flex-end;
-    margin-bottom: 0.12em; }
+  #reading { display: flex; align-items: baseline; }
+  #unit { font-size: 0.28em; font-weight: 400; margin-left: 0.15em; }
 
   #scale { width: 22vw; max-width: 120px; display: flex; padding: 12px 8px 12px 0; }
   #track { position: relative; flex: 1; border: 1px solid #444; border-radius: 6px;
@@ -54,7 +54,7 @@
 <body>
   <div id="links"></div>
   <div id="main">
-    <div id="value" class="stale"><span id="num">---</span><span id="unit">kgf</span></div>
+    <div id="value" class="stale"><div id="reading"><span id="num">---</span><span id="unit">kgf</span></div></div>
     <div id="scale">
       <div id="track"><div id="fill"></div><div id="limit"></div></div>
       <div id="ticks"></div>
