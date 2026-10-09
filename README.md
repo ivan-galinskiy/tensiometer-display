@@ -9,6 +9,10 @@ page keeps the screen awake and reconnects on its own if the link drops.
 
 Hosted on GitHub Pages: https://ivan-galinskiy.github.io/tensiometer-display/
 
+A URL fragment narrows the device picker to one name: `#RX` offers only `Tension RX`, the receiver
+in the glider (`#gauge` would offer `Tension gauge`). The receiver shows this link as a QR code when
+its BOOT button is pressed.
+
 The gauge's GATT, defined in the firmware of the (private) `tensiometer` repository:
 
 | item | value |

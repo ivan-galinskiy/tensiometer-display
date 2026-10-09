@@ -72,6 +72,8 @@ const FORCE = 0x2c07;
 const STALE_MS = 1500;
 const G = 9.80665;          // N per kgf
 const SCALE_MAX = 120;      // % of the weak link at the top of the bar
+// A URL fragment picks the device: #RX offers only "Tension RX" (the QR code on the receiver's OLED)
+const WANT = decodeURIComponent(location.hash.slice(1));
 
 // Tost weak links, nominal breaking load in daN (1 daN = 10 N)
 const LINKS = [
@@ -187,7 +189,7 @@ async function connect() {
   }
   try {
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SERVICE] }],
+      filters: [WANT ? { services: [SERVICE], name: `Tension ${WANT}` } : { services: [SERVICE] }],
     });
     device.addEventListener('gattserverdisconnected', onDisconnected);
     await subscribe();
@@ -216,7 +218,7 @@ value.addEventListener('click', () => {
 selectLink(link);
 
 // For tests and the console
-window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE };
+window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE, WANT };
 </script>
 </body>
 </html>
