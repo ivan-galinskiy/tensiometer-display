@@ -20,6 +20,7 @@ The gauge's GATT, defined in the firmware of the (private) `tensiometer` reposit
 | service | Industrial Measurement Device, `0x185A` |
 | characteristic | Force, `0x2C07`, read + notify |
 | format | `sint32` little-endian, exponent -3, newton (millinewtons) |
+| time | Current Time service `0x1805`, Current Time `0x2A2B`, write: the page writes this phone's clock in UTC on every connect, setting the device's log clock |
 
 Web Bluetooth needs a secure context, which is why the page lives on Pages rather than being
 opened from a file.

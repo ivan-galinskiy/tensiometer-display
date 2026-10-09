@@ -69,6 +69,9 @@
 // sint32 little-endian, exponent -3, newton (i.e. millinewtons). Notifications at ~10 Hz.
 const SERVICE = 0x185a;
 const FORCE = 0x2c07;
+// Current Time service: on connect the page writes this phone's clock (UTC) to set the device's RTC
+const TIME_SERVICE = 0x1805;
+const CURRENT_TIME = 0x2a2b;
 const STALE_MS = 1500;
 const G = 9.80665;          // N per kgf
 const SCALE_MAX = 120;      // % of the weak link at the top of the bar
@@ -162,10 +165,29 @@ async function subscribe() {
   ch.addEventListener('characteristicvaluechanged', e => render(e.target.value));
   await ch.startNotifications();
   try { render(await ch.readValue()); } catch (_) { /* first notification will do */ }
+  await setTime(server);
   setStatus(`${device.name ?? 'gauge'} · live`);
   button.textContent = 'Disconnect';
   button.classList.add('on');
   keepAwake();
+}
+
+// Exact Time 256 + adjust reason, in UTC (the device logs UTC)
+function exactTime(d) {
+  const b = new DataView(new ArrayBuffer(10));
+  b.setUint16(0, d.getUTCFullYear(), true);
+  [d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(),
+   d.getUTCDay() || 7, Math.floor(d.getUTCMilliseconds() * 256 / 1000), 1 /* manual update */]
+    .forEach((v, i) => b.setUint8(2 + i, v));
+  return b;
+}
+
+async function setTime(server) {
+  try {
+    const service = await server.getPrimaryService(TIME_SERVICE);
+    const ch = await service.getCharacteristic(CURRENT_TIME);
+    await ch.writeValue(exactTime(new Date()));
+  } catch (_) { /* firmware without the time service */ }
 }
 
 async function onDisconnected() {
@@ -190,6 +212,7 @@ async function connect() {
   try {
     device = await navigator.bluetooth.requestDevice({
       filters: [WANT ? { services: [SERVICE], name: `Tension ${WANT}` } : { services: [SERVICE] }],
+      optionalServices: [TIME_SERVICE],
     });
     device.addEventListener('gattserverdisconnected', onDisconnected);
     await subscribe();
@@ -218,7 +241,7 @@ value.addEventListener('click', () => {
 selectLink(link);
 
 // For tests and the console
-window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE, WANT };
+window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE, WANT, exactTime };
 </script>
 </body>
 </html>
