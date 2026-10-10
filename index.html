@@ -182,11 +182,27 @@ function exactTime(d) {
   return b;
 }
 
+// Server time from the Date header of a same-origin request (the Pages CDN stamps every response,
+// cached or not), measured at load: the phone clock is corrected by the offset if it is off by more
+// than 2 s (Date has 1 s resolution). Offline, the phone clock is used as is.
+let clockOffset = 0;
+async function measureClock() {
+  try {
+    const t0 = Date.now();
+    const r = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+    const t1 = Date.now();
+    const offset = Date.parse(r.headers.get('Date')) + 500 - (t0 + t1) / 2;
+    if (Math.abs(offset) > 2000) clockOffset = offset;
+  } catch (_) { /* offline */ }
+}
+const clockMeasured = measureClock();
+const networkNow = () => new Date(Date.now() + clockOffset);
+
 async function setTime(server) {
   try {
     const service = await server.getPrimaryService(TIME_SERVICE);
     const ch = await service.getCharacteristic(CURRENT_TIME);
-    await ch.writeValue(exactTime(new Date()));
+    await ch.writeValue(exactTime(networkNow()));
   } catch (_) { /* firmware without the time service */ }
 }
 
@@ -241,7 +257,7 @@ value.addEventListener('click', () => {
 selectLink(link);
 
 // For tests and the console
-window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE, WANT, exactTime };
+window.tensiometer = { render, selectLink, LINKS, SERVICE, FORCE, WANT, exactTime, networkNow, clockMeasured };
 </script>
 </body>
 </html>
